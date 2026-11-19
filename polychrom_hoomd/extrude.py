@@ -19,16 +19,16 @@ except ImportError:
     warnings.warn("Could not load CuPy library - local/3D topology updates unavailable")
 
 
-def update_topology(system, bond_list, local=True, thermalize=False):
-    """Update topology on either GPU or CPU, based on availability"""
+def update_topology(system, bond_list, local=True, thermalize=False, bond_name='LEF'):
+    """Update a named bond topology on either GPU or CPU."""
 
-    LEF_typeid = system.state.bond_types.index('LEF')
-    LEF_dummy_typeid = system.state.bond_types.index('LEF_dummy')
+    bond_typeid = system.state.bond_types.index(bond_name)
+    dummy_bond_typeid = system.state.bond_types.index(f'{bond_name}_dummy')
     
     if len(bond_list) > 0:
         # Discard contiguous loops
         bond_array = xp.asarray(bond_list, dtype=xp.int32)
-        type_array = xp.full(len(bond_array), LEF_typeid, dtype=xp.int32)
+        type_array = xp.full(len(bond_array), bond_typeid, dtype=xp.int32)
 
         redundant_bonds = xp.less(bond_array[:, 1] - bond_array[:, 0], 1)
         n_prune = int(xp.count_nonzero(redundant_bonds))
@@ -36,7 +36,7 @@ def update_topology(system, bond_list, local=True, thermalize=False):
         ids = xp.random.randint(low=0, high=system.state.N_particles-1, size=n_prune, dtype=xp.int32)
 		
         bond_array[redundant_bonds] = xp.stack((ids, ids+1), axis=1)
-        type_array[redundant_bonds] = LEF_dummy_typeid
+        type_array[redundant_bonds] = dummy_bond_typeid
 
     else:
         bond_array = xp.empty(0, dtype=xp.int32)
@@ -44,15 +44,15 @@ def update_topology(system, bond_list, local=True, thermalize=False):
 
     if local:
         try:
-            _update_topology_local(system, bond_array, type_array, LEF_typeid, LEF_dummy_typeid)
+            _update_topology_local(system, bond_array, type_array, bond_typeid, dummy_bond_typeid)
             warnings.warn("Using local topology update")
 
         except Exception as e:
-            _update_topology_nonlocal(system, bond_array, type_array, LEF_typeid, LEF_dummy_typeid)
+            _update_topology_nonlocal(system, bond_array, type_array, bond_typeid, dummy_bond_typeid)
             warnings.warn("%s - reverting to non-local topology update" % e)
 
     else:
-        _update_topology_nonlocal(system, bond_array, type_array, LEF_typeid, LEF_dummy_typeid)
+        _update_topology_nonlocal(system, bond_array, type_array, bond_typeid, dummy_bond_typeid)
 
     if thermalize:
         system.state.thermalize_particle_momenta(filter=hoomd.filter.All(), kT=1.0)
